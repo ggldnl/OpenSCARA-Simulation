@@ -1,0 +1,3 @@
+[submodule "OpenSCARA-Hardware"]
+	path = OpenSCARA-Hardware
+	url = https://github.com/ggldnl/OpenSCARA-Hardware.git

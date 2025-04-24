@@ -1,0 +1,7 @@
+name: openSCARA-sim
+channels:
+  - anaconda
+  - conda-forge
+dependencies:
+  - cython
+  - pybullet
