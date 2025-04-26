@@ -27,10 +27,10 @@ For a complete overview of the project, refer to the [main OpenSCARA repository]
 
 ## 🚀 Delpoy
 
-- `simulation.py` will show the arm moving in a straight line to a target point (in task space, i.e. x, y, z, yaw). The default target point is (0.2, 0, 0.15, 1.57[rad]) but can be changed passing the desired values as argument. 
+- `simulation.py` will show the arm cycling through a list of points with straight lines.
 
     ```bash
-    python simulation/showcase_animations.py -x 0.1 -y 0.1 -z 0.1 -yaw 1.57
+    python simulation/showcase_animations.py -v ../media/rendering.mp4
     ```
 
     [![actions](https://img.youtube.com/vi/msuydRaIWuU/0.jpg)](https://www.youtube.com/watch?v=msuydRaIWuU)
