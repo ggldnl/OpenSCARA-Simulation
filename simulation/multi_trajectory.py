@@ -128,6 +128,13 @@ def map_to_robot(joint_values):
     map_joint_4 = -joint_values[3] + math.pi
     return map_joint_1, map_joint_2, map_joint_3, map_joint_4
 
+
+def wrap_angle(angle):
+    """
+    Wrap angle to (-pi, pi] range.
+    """
+    return (angle + math.pi) % (2 * math.pi) - math.pi
+
 def inverse_kinematics(point):
     """
     Compute the inverse kinematics for the SCARA arm.
@@ -156,8 +163,8 @@ def inverse_kinematics(point):
     q2_a = gamma - math.atan2(L3 * s3_a, L2 + L3 * c3)
     q2_b = gamma - math.atan2(L3 * s3_b, L2 + L3 * c3)
     
-    q4_a = yaw - (q2_a + q3_a)
-    q4_b = yaw - (q2_b + q3_b)
+    q4_a = wrap_angle(yaw - (q2_a + q3_a))
+    q4_b = wrap_angle(yaw - (q2_b + q3_b))
 
     config_a_valid = (
             JOINT_1_MIN <= q1 <= JOINT_1_MAX and
