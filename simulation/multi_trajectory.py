@@ -23,12 +23,12 @@ JOINT_2_MIN = -math.pi / 2
 JOINT_2_MAX = math.pi / 2
 
 # The third joint angle can move by almost 360 degrees
-JOINT_3_MIN = 0
-JOINT_3_MAX = 5.93412  # 340 degrees
+JOINT_3_MIN = -math.pi
+JOINT_3_MAX = math.pi - math.radians(15)  # Almost +180 deg
 
 # The fourth joint angle can also move by almost 360 degrees
-JOINT_4_MIN = 0
-JOINT_4_MAX = 5.93412  # 340 degrees
+JOINT_4_MIN = -math.pi
+JOINT_4_MAX = math.pi - math.radians(15)  # Almost +180 deg
 
 # -------------------------------- Kinematics -------------------------------- #
 
@@ -125,7 +125,7 @@ def map_to_robot(joint_values):
     map_joint_1 = joint_values[0]
     map_joint_2 = -joint_values[1] + math.pi / 2
     map_joint_3 = -joint_values[2] + math.pi
-    map_joint_4 = joint_values[3]
+    map_joint_4 = -joint_values[3] + math.pi
     return map_joint_1, map_joint_2, map_joint_3, map_joint_4
 
 def inverse_kinematics(point):
@@ -159,19 +159,29 @@ def inverse_kinematics(point):
     q4_a = yaw - (q2_a + q3_a)
     q4_b = yaw - (q2_b + q3_b)
 
-    # TODO check if the configurations are valid
-    
-    return Configuration(q1, q2_a, q3_a, q4_a), Configuration(q1, q2_b, q3_b, q4_b)
+    config_a_valid = (
+            JOINT_1_MIN <= q1 <= JOINT_1_MAX and
+            JOINT_2_MIN <= q2_a <= JOINT_2_MAX and
+            JOINT_3_MIN <= q3_a <= JOINT_3_MAX and
+            JOINT_4_MIN <= q4_a <= JOINT_4_MAX
+    )
+    config_a = Configuration(q1, q2_a, q3_a, q4_a) if config_a_valid else None
+
+    config_b_valid = (
+            JOINT_1_MIN <= q1 <= JOINT_1_MAX and
+            JOINT_2_MIN <= q2_b <= JOINT_2_MAX and
+            JOINT_3_MIN <= q3_b <= JOINT_3_MAX and
+            JOINT_4_MIN <= q4_b <= JOINT_4_MAX
+    )
+    config_b = Configuration(q1, q2_b, q3_b, q4_b) if config_b_valid else None
+
+    return config_a, config_b
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="OpenSCARA PyBullet simulation.")
-    parser.add_argument('-x', '--x', type=float, default=0.2, help="X coordinate of the task point")
-    parser.add_argument('-y', '--y', type=float, default=0, help="Y coordinate of the task point")
-    parser.add_argument('-z', '--z', type=float, default=0.15, help="Z coordinate of the task point")
-    parser.add_argument('-w', '--yaw', type=float, default=1.57, help="Yaw value of the task point")
-    parser.add_argument("-u", "--URDF", type=str, default='OpenSCARA-Hardware/SCARA.urdf', help="Path to SCARA's URDF")
+    parser.add_argument("-u", "--URDF", type=str, default='../OpenSCARA-Hardware/SCARA.urdf', help="Path to SCARA's URDF")
     parser.add_argument('-t', '--dt', type=float, default=0.02, help="Time delta for update (default=0.02=50Hz)")
     parser.add_argument('-v', '--video_path', type=str, default=None, help="If provided, the script will save an mp4 of the simulation on the path")
 
@@ -190,10 +200,10 @@ if __name__ == '__main__':
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0)  # Disable shadows
 
     # Set initial camera view
-    default_camera_distance = 0.5
+    default_camera_distance = 0.8
     default_camera_roll = 0
-    default_camera_yaw = 0
-    default_camera_pitch = -45
+    default_camera_yaw = -45
+    default_camera_pitch = -25
     default_camera_target = [0, 0, 0]
 
     physics.resetDebugVisualizerCamera(
@@ -239,9 +249,17 @@ if __name__ == '__main__':
 
     # ---------------------------- Trajectory planning --------------------------- #
 
-    # Target point (task space)
-    target = TaskPoint(args.x, args.y, args.z, args.yaw)
-    print(f"Target: {target}")
+    # Target points (task space)
+    task_points = [
+        TaskPoint(0.2, 0.0, 0.15, 1.57),
+        TaskPoint(0.15, 0.15, 0.15, 1.0),
+        TaskPoint(0.1, -0.1, 0.15, 2.0),
+    ]
+    durations = [
+        3,
+        3,
+        3
+    ]
 
     # Current configuration (joint space)
     current_config = Configuration(q1=0, q2=0, q3=0, q4=0)
@@ -251,43 +269,8 @@ if __name__ == '__main__':
     p.setJointMotorControl2(robotID, joint_mapping['joint_4'], p.POSITION_CONTROL, targetPosition=current_config[3])
     print(f"Current configuration: {current_config}")
 
-    # Compute inverse kinematics solutions
-    solution_1, solution_2 = inverse_kinematics(target)
-    print(f"Configuration 1: {solution_1}")
-    print(f"Configuration 2: {solution_2}")
-
-    if solution_1 is None and solution_2 is None:
-        # If no solution is found, exit
-        print("No solution found for the given point.")
-        physics.disconnect()
-        exit(1)
-    elif solution_1 is None or solution_2 is None:
-        # Select the only available solution
-        print("Only one solution found for the given point.")
-        solution = solution_1 if solution_1 is not None else solution_2
-    else:
-        # Two solutions found, select the closest configuration
-        distance_1 = current_config.distance(solution_1)
-        distance_2 = current_config.distance(solution_2)
-        solution = solution_1 if distance_1 < distance_2 else solution_2
-
-    print(f"Selected solution: {solution}")
-
     # Smooth start and stop
-    duration = 3.0  # seconds
     vi = vf = ai = af = 0.0
-
-    trajectories = [
-        Trajectory(
-            qi=qi,
-            qf=qf,
-            vi=vi,
-            vf=vf,
-            ai=ai,
-            af=af,
-            tf=duration
-        ) for qi, qf in zip(current_config, solution)
-    ]
 
     # ------------------------------ Simulation loop ----------------------------- #
 
@@ -302,24 +285,54 @@ if __name__ == '__main__':
 
     try:
 
-        t = 0.0
         dt = args.dt
 
+        for target, duration in zip(task_points, durations):
+
+            print(f"\nReaching target {target} in time {duration}s")
+
+            sol1, sol2 = inverse_kinematics(target)
+            if sol1 is None and sol2 is None:
+                print("No solution for target, skipping.")
+                continue
+            elif sol1 is not None or sol2 is not None:
+                # Select the only available solution
+                print("Only one solution found for the given point.")
+                solution = sol1 if sol1 is not None else sol2
+            else:
+                # Two solutions found, select the closest configuration
+                distance_1 = current_config.distance(sol1)
+                distance_2 = current_config.distance(sol2)
+                solution = sol1 if distance_1 < distance_2 else sol2
+
+            print(f"Selected solution: {solution}")
+
+            # Plan trajectories
+            trajectories = [
+                Trajectory(qi=qi, qf=qf, vi=vi, vf=vf, ai=ai, af=af, tf=duration)
+                for qi, qf in zip(current_config, solution)
+            ]
+
+            t = 0.0
+            while t < duration:
+                physics.stepSimulation()
+                joint_values = [traj[t] for traj in trajectories]
+                mapped = map_to_robot(joint_values)
+
+                p.setJointMotorControl2(robotID, joint_mapping['joint_1'], p.POSITION_CONTROL, targetPosition=mapped[0])
+                p.setJointMotorControl2(robotID, joint_mapping['joint_2'], p.POSITION_CONTROL, targetPosition=mapped[1])
+                p.setJointMotorControl2(robotID, joint_mapping['joint_3'], p.POSITION_CONTROL, targetPosition=mapped[2])
+                p.setJointMotorControl2(robotID, joint_mapping['joint_4'], p.POSITION_CONTROL, targetPosition=mapped[3])
+
+                time.sleep(dt)
+                t += dt
+
+            # Update current configuration to the one we just reached
+            current_config = solution
+
+        # Keep the simulation alive
+        t = 0.0
         while p.isConnected():
-
-            # Step the simulations
-            physics.stepSimulation()
-
-            # Take the current joint configuration
-            joint_values = [trajectory[t] for trajectory in trajectories]
-            solution_mapped = map_to_robot(joint_values)
-
-            # Move the joints to the target position
-            p.setJointMotorControl2(robotID, joint_mapping['joint_1'], p.POSITION_CONTROL, targetPosition=solution_mapped[0])
-            p.setJointMotorControl2(robotID, joint_mapping['joint_2'], p.POSITION_CONTROL, targetPosition=solution_mapped[1])
-            p.setJointMotorControl2(robotID, joint_mapping['joint_3'], p.POSITION_CONTROL, targetPosition=solution_mapped[2])
-            p.setJointMotorControl2(robotID, joint_mapping['joint_4'], p.POSITION_CONTROL, targetPosition=solution_mapped[3])
-
             time.sleep(dt)
             t += dt
 
