@@ -24,11 +24,11 @@ JOINT_2_MAX = math.pi / 2
 
 # The third joint angle can move by almost 360 degrees
 JOINT_3_MIN = -math.pi
-JOINT_3_MAX = math.pi - math.radians(15)  # Almost +180 deg
+JOINT_3_MAX = math.pi - math.radians(10)  # Almost +180 deg
 
 # The fourth joint angle can also move by almost 360 degrees
 JOINT_4_MIN = -math.pi
-JOINT_4_MAX = math.pi - math.radians(15)  # Almost +180 deg
+JOINT_4_MAX = math.pi - math.radians(10)  # Almost +180 deg
 
 # -------------------------------- Kinematics -------------------------------- #
 
@@ -117,17 +117,22 @@ class Trajectory:
 
         return c[0] + c[1]*t + c[2]*t**2 + c[3]*t**3 + c[4]*t**4 + c[5]*t**5
 
+def map_range(value, from_min, from_max, to_min, to_max):
+    """
+    Map a value from a range to another.
+    """
+    return to_min + ((value - from_min) / (from_max - from_min)) * (to_max - to_min)
+
 def map_to_robot(joint_values):
     """
-    Map the joint values from the kinematic model's joint space 
+    Map the joint values from the kinematic model's joint space
     to the actual robot's joint space.
     """
     map_joint_1 = joint_values[0]
-    map_joint_2 = -joint_values[1] + math.pi / 2
-    map_joint_3 = -joint_values[2] + math.pi
-    map_joint_4 = -joint_values[3] + math.pi
+    map_joint_2 = map_range(joint_values[1], math.pi / 2, -math.pi / 2, 0, math.pi)
+    map_joint_3 = map_range(joint_values[2], -math.pi, math.pi, 0, -2 * math.pi)
+    map_joint_4 = joint_values[3]  # TODO fix this joint
     return map_joint_1, map_joint_2, map_joint_3, map_joint_4
-
 
 def wrap_angle(angle):
     """
@@ -184,6 +189,20 @@ def inverse_kinematics(point):
 
     return config_a, config_b
 
+def interpolate(point_a, point_b, steps):
+    """
+    Generate a list of configurations interpolating from config_a to config_b.
+    """
+    points = []
+    for i in range(steps):
+        alpha = i / (steps - 1)
+        x = (1 - alpha) * point_a.x + alpha * point_b.x
+        y = (1 - alpha) * point_a.y + alpha * point_b.y
+        z = (1 - alpha) * point_a.z + alpha * point_b.z
+        yaw = (1 - alpha) * point_a.yaw + alpha * point_b.yaw
+        points.append(TaskPoint(x, y, z, yaw))
+    return points
+
 
 if __name__ == '__main__':
 
@@ -204,7 +223,7 @@ if __name__ == '__main__':
     physics.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0)
     physics.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0)
     physics.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW, 0)
-    p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0)  # Disable shadows
+    p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 1)  # Enable shadows
 
     # Set initial camera view
     default_camera_distance = 0.8
@@ -226,11 +245,11 @@ if __name__ == '__main__':
 
     # Load plane and robot URDF files
     planeId = physics.loadURDF("plane.urdf")
-    cubeStartPos = [0, 0, 0]
-    cubeStartOrientation = p.getQuaternionFromEuler([0, 0, 0])
 
     urdf_file = Path(args.URDF)
-    robotID = physics.loadURDF(str(urdf_file), cubeStartPos, cubeStartOrientation, flags=p.URDF_USE_INERTIA_FROM_FILE, useFixedBase=True)
+    start_position = [0, 0, 0]
+    start_orientation = p.getQuaternionFromEuler([0, 0, 0])
+    robotID = physics.loadURDF(str(urdf_file), start_position, start_orientation, flags=p.URDF_USE_INERTIA_FROM_FILE, useFixedBase=True)
 
     # List revolute and prismatic joints
     revolute_joints = []
@@ -257,19 +276,44 @@ if __name__ == '__main__':
     # ---------------------------- Trajectory planning --------------------------- #
 
     # Target points (task space)
-    task_points = [
-        TaskPoint(0.2, 0.0, 0.15, 1.57),
-        TaskPoint(0.15, 0.15, 0.15, 1.0),
-        TaskPoint(0.1, -0.1, 0.15, 2.0),
-    ]
-    durations = [
-        3,
-        3,
-        3
-    ]
+    task_points = []
+    durations = []
+
+    # Move forward and backward
+    for x in [0.05, 0.2, 0.05, 0.2]:
+        task_points.append(TaskPoint(x, 0.0, 0.16, 0))
+        durations.append(3)  # Same for all the trajectories
+
+    # Move left and right
+    interpolation_points = interpolate(
+        TaskPoint(0.1, -0.2, 0.16, 0),
+        TaskPoint(0.1, 0.2, 0.16, 0),
+        10
+    )
+    for point in interpolation_points:
+        task_points.append(point)
+        durations.append(3)  # Same for all the trajectories
+
+    for point in reversed(interpolation_points):
+        task_points.append(point)
+        durations.append(3)  # Same for all the trajectories
+
+    """
+    Draw a square
+    
+    (0.2, 0.2) o------------o (0.2, 0)
+               |            |
+               |            |
+               |            |
+               |            |
+    (  0, 0.2) o------------o (  0, 0)
+    """
+    for x, y in [(0.02, 0.02), (0.02, 0.12), (0.12, 0.12), (0.12, 0.02), (0.02, 0.02)]:
+        task_points.append(TaskPoint(x, y, 0.16, 0))
+        durations.append(3)
 
     # Current configuration (joint space)
-    current_config = Configuration(q1=0, q2=0, q3=0, q4=0)
+    current_config = Configuration(q1=0.16, q2=0, q3=0, q4=0)
     p.setJointMotorControl2(robotID, joint_mapping['joint_1'], p.POSITION_CONTROL, targetPosition=current_config[0])
     p.setJointMotorControl2(robotID, joint_mapping['joint_2'], p.POSITION_CONTROL, targetPosition=current_config[1])
     p.setJointMotorControl2(robotID, joint_mapping['joint_3'], p.POSITION_CONTROL, targetPosition=current_config[2])
@@ -322,6 +366,7 @@ if __name__ == '__main__':
 
             t = 0.0
             while t < duration:
+
                 physics.stepSimulation()
                 joint_values = [traj[t] for traj in trajectories]
                 mapped = map_to_robot(joint_values)
@@ -339,7 +384,8 @@ if __name__ == '__main__':
 
         # Keep the simulation alive
         t = 0.0
-        while p.isConnected():
+        while physics.isConnected():
+            physics.stepSimulation()
             time.sleep(dt)
             t += dt
 
